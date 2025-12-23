@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>럭키 룰렛 - 파이널 마스터피스</title>
+    <style>
+        /* 기본 레이아웃 및 우주 배경 */
+        body {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; margin: 0;
+            background: radial-gradient(circle at center, #1b2735 0%, #090a0f 100%) !important;
+            color: white; font-family: 'Pretendard', 'Malgun Gothic', sans-serif;
+            overflow: hidden;
+        }
+
+        /* 룰렛을 고정하는 부모 컨테이너 */
+        #roulette-wrapper {
+            position: relative;
+            width: 440px;
+            height: 440px;
+            margin-bottom: 50px;
+            flex-shrink: 0;
+        }
+
+        /* 화살표 디자인 */
+        #arrow {
+            position: absolute; top: -35px; left: 50%; transform: translateX(-50%);
+            width: 0; height: 0; 
+            border-left: 25px solid transparent; 
+            border-right: 25px solid transparent; 
+            border-top: 55px solid #ff4757; 
+            z-index: 100;
+            filter: drop-shadow(0 4px 10px rgba(255, 71, 87, 0.5));
+        }
+
+        /* 룰렛 본체 프레임 (절대 크기 고정) */
+        #roulette-frame {
+            position: relative;
+            width: 440px;
+            height: 440px;
+            border-radius: 50%;
+            border: 12px solid #ffffff;
+            box-shadow: 0 0 50px rgba(52, 152, 219, 0.4);
+            background: #222;
+            overflow: hidden;
+            z-index: 10;
+        }
+
+        /* 실제 회전하는 캔버스 */
+        canvas#rouletteCanvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 440px !important; 
+            height: 440px !important;
+            display: block;
+            transition: transform 4s cubic-bezier(0.15, 0, 0.15, 1);
+            will-change: transform;
+        }
+
+        /* 스핀 버튼 */
+        #spinBtn {
+            padding: 20px 90px; font-size: 28px; font-weight: 900; cursor: pointer;
+            background: linear-gradient(145deg, #ffffff, #d9d9d9);
+            color: #333; border: none; border-radius: 60px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 50;
+        }
+        #spinBtn:hover { transform: scale(1.05); background: #00d2ff; color: white; box-shadow: 0 0 30px #00d2ff; }
+        #spinBtn:active { transform: scale(0.95); }
+        #spinBtn:disabled { background: #444; color: #777; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        /* 결과 창 오버레이 */
+        #win-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.92);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 2000;
+        }
+        #win-message { text-align: center; animation: popIn 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .rank-label { font-size: 26px; font-weight: 800; color: #888; letter-spacing: 5px; margin-bottom: 20px; display: block; }
+        .win-item { font-size: 75px; font-weight: 950; margin: 15px 0; display: block; text-shadow: 0 0 40px currentColor; }
+        .win-reward { font-size: 40px; color: #fff; font-weight: 700; opacity: 0.9; }
+        
+        #closeBtn {
+            margin-top: 60px; padding: 18px 60px; font-size: 22px;
+            background: transparent; border: 2px solid #fff; color: #fff;
+            border-radius: 50px; cursor: pointer; font-weight: 700; transition: 0.3s;
+        }
+        #closeBtn:hover { background: #fff; color: #000; }
+
+        @keyframes popIn { 0% { transform: scale(0.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div id="roulette-wrapper">
+        <div id="arrow"></div>
+        <div id="roulette-frame">
+            <canvas id="rouletteCanvas" width="1000" height="1000"></canvas>
+        </div>
+    </div>
+
+    <button id="spinBtn" onclick="spin()">SPIN!</button>
+
+    <!-- 결과 창 -->
+    <div id="win-overlay">
+        <div id="win-message"></div>
+        <button id="closeBtn" onclick="closeWin()">다시 도전하기</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <script>
+        const canvas = document.getElementById('rouletteCanvas');
+        const ctx = canvas.getContext('2d');
+        const spinBtn = document.getElementById('spinBtn');
+        const winOverlay = document.getElementById('win-overlay');
+
+        const items = [
+            { label: "1%", weight: 1, color: "#f1c40f", count: 5, rank: "LEGENDARY" },
+            { label: "4%", weight: 4, color: "#e67e22", count: 3, rank: "EPIC" },
+            { label: "5%", weight: 5, color: "#2ecc71", count: 2, rank: "RARE" },
+            { label: "90%", weight: 90, color: "#3498db", count: 1, rank: "COMMON" }
+        ];
+
+        function draw() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = canvas.width / 2;
+            let startAngle = -Math.PI / 2;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            items.forEach(item => {
+                const sliceAngle = (item.weight / 100) * 2 * Math.PI;
+
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
+                ctx.fillStyle = item.color;
+                ctx.fill();
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 6;
+                ctx.stroke();
+
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(startAngle + sliceAngle / 2);
+                ctx.textAlign = "right";
+                ctx.fillStyle = "#ffffff";
+                const fontSize = item.weight > 10 ? 120 : 45;
+                ctx.font = `900 ${fontSize}px sans-serif`;
+                ctx.shadowColor = "rgba(0,0,0,0.5)";
+                ctx.shadowBlur = 15;
+                ctx.fillText(item.label, radius - 60, 20);
+                ctx.restore();
+
+                startAngle += sliceAngle;
+            });
+        }
+
+        window.onload = draw;
+
+        let audioCtx = null;
+        function playTick(freq, duration = 0.06) {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+
+        function triggerEffects(rank) {
+            const end = Date.now() + (rank === "LEGENDARY" ? 3000 : 1000);
+            const colors = rank === "LEGENDARY" ? ['#f1c40f', '#fff', '#e67e22'] : ['#3498db', '#ffffff'];
+
+            (function frame() {
+                confetti({
+                    particleCount: rank === "LEGENDARY" ? 5 : 2,
+                    angle: 60, spread: 55, origin: { x: 0 }, colors: colors
+                });
+                confetti({
+                    particleCount: rank === "LEGENDARY" ? 5 : 2,
+                    angle: 120, spread: 55, origin: { x: 1 }, colors: colors
+                });
+                if (Date.now() < end) requestAnimationFrame(frame);
+            }());
+
+            if (rank === "LEGENDARY" || rank === "EPIC") {
+                confetti({
+                    particleCount: 150, spread: 100, origin: { y: 0.6 },
+                    colors: ['#FFD700', '#FFA500', '#ffffff']
+                });
+            }
+        }
+
+        let totalRotation = 0;
+
+        function spin() {
+            spinBtn.disabled = true;
+
+            // 실제 설정된 가중치로만 확률 계산
+            const r = Math.random() * 100;
+            let winIdx = (r < 1) ? 0 : (r < 5) ? 1 : (r < 10) ? 2 : 3;
+
+            let accumulatedWeight = 0;
+            for(let i = 0; i < winIdx; i++) accumulatedWeight += items[i].weight;
+            
+            const startAngle = (accumulatedWeight / 100) * 360;
+            const itemWidth = items[winIdx].weight / 100 * 360;
+            const randomOffset = itemWidth * 0.2 + Math.random() * (itemWidth * 0.6);
+            const targetAngle = startAngle + randomOffset;
+
+            const extraSpins = 360 * 10; 
+            const finalStop = extraSpins + (360 - targetAngle);
+            
+            totalRotation += finalStop - (totalRotation % 360);
+            canvas.style.transform = `rotate(${totalRotation}deg)`;
+
+            for(let i=0; i<45; i++) {
+                setTimeout(() => playTick(500 + (Math.random()*100)), (i * i * 2.1));
+            }
+
+            setTimeout(() => {
+                const winner = items[winIdx];
+                playTick(523, 0.3); setTimeout(() => playTick(659, 0.3), 150);
+                triggerEffects(winner.rank);
+
+                document.getElementById('win-message').innerHTML = `
+                    <span class="rank-label">[ ${winner.rank} ]</span>
+                    <span class="win-item" style="color:${winner.color}">${winner.label} 당첨!</span>
+                    <span class="win-reward">${winner.count}개의 보상이 지급되었습니다.</span>
+                `;
+                winOverlay.style.display = 'flex';
+            }, 4000);
+        }
+
+        function closeWin() {
+            winOverlay.style.display = 'none';
+            spinBtn.disabled = false;
+        }
+    </script>
+</body>
+</html>
